@@ -1,0 +1,22 @@
+{
+  "tasks": [
+    {
+      "title": "Pick item from top shelf and place into cart",
+      "category": "Logistics",
+      "objects": "shelf, item, cart",
+      "description": "Stand upright, reach the top shelf with both arms, grasp one item, walk to the cart, and place the item inside without dropping."
+    },
+    {
+      "title": "Pick item from middle shelf bent and place into cart",
+      "category": "Logistics",
+      "objects": "shelf, item, cart",
+      "description": "Bend the torso forward, reach the middle shelf, grasp one item, recover upright, walk to the cart, and place the item inside."
+    },
+    {
+      "title": "Pick item from bottom shelf crouch and place into cart",
+      "category": "Logistics",
+      "objects": "shelf, item, cart",
+      "description": "Crouch down, reach the bottom shelf, grasp one item, return to standing, walk to the cart, and place the item inside."
+    }
+  ]
+}
