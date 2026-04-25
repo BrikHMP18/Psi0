@@ -24,7 +24,7 @@ conda activate vision && python realsense_server.py
 ```
 
 ```bash
-# Terminal B — on the laptop, from the repo root (~/NONHUMAN/Psi0)
+# Terminal B — on the laptop, from the repo root (./Psi0)
 cd real/teleop
 conda activate psi_deploy
 export CYCLONEDDS_URI="<CycloneDDS><Domain><General><NetworkInterfaceAddress>192.168.123.123</NetworkInterfaceAddress></General></Domain></CycloneDDS>"
@@ -38,8 +38,10 @@ python main.py --robot g1 --pico_streamer
 
 ## 1. Clone
 
+Pick any workspace directory (`$WORKSPACE`) where Psi0 and its sibling repos will live side by side. Subsequent sections assume this layout.
+
 ```bash
-cd ~/NONHUMAN
+cd "$WORKSPACE"
 git clone https://github.com/BrikHMP18/Psi0.git
 cd Psi0
 git submodule update --init --recursive
@@ -107,9 +109,9 @@ conda deactivate && conda activate psi_deploy
 The repo's `real/README.md:24` instructs installing the lab's fork (`physical-superintelligence-lab/unitree_sdk2_python`) without explaining what differs from the official. Use it as the reference path. If you already have the official `unitreerobotics/unitree_sdk2_python` working, try it first and only switch to the fork if you hit import or message-type mismatches.
 
 ```bash
-cd ~/NONHUMAN
+cd ..
 git clone git@github.com:physical-superintelligence-lab/unitree_sdk2_python.git
-cd unitree_sdk2_python && pip install -e . && cd ~/NONHUMAN/Psi0
+cd unitree_sdk2_python && pip install -e . && cd ../Psi0
 ```
 
 ---
@@ -117,7 +119,7 @@ cd unitree_sdk2_python && pip install -e . && cd ~/NONHUMAN/Psi0
 ## 4. XRoboToolkit (PICO SDK)
 
 ```bash
-cd ~/NONHUMAN
+cd ..
 git clone https://github.com/YanjieZe/XRoboToolkit-PC-Service-Pybind.git
 cd XRoboToolkit-PC-Service-Pybind
 mkdir -p tmp lib include && cd tmp
@@ -130,7 +132,7 @@ cp tmp/XRoboToolkit-PC-Service/RoboticsService/PXREARobotSDK/build/libPXREARobot
 conda install -y -c conda-forge pybind11
 pip uninstall -y xrobotoolkit_sdk
 python setup.py install
-cd ~/NONHUMAN/Psi0
+cd ../Psi0
 ```
 
 Verify:
@@ -146,7 +148,7 @@ Also install **XRoboToolkit-PC-Service** on the laptop (https://github.com/XR-Ro
 ## 5. real/ package
 
 ```bash
-cd ~/NONHUMAN/Psi0/real && pip install -e . && cd ..
+cd real && pip install -e . && cd ..
 ```
 
 ---
@@ -188,7 +190,7 @@ exit
 From the laptop:
 
 ```bash
-scp ~/NONHUMAN/Psi0/real/teleop/image_server/realsense_server.py unitree@192.168.123.164:~/
+scp real/teleop/image_server/realsense_server.py unitree@192.168.123.164:~/
 ```
 
 On the G1 PC:
@@ -247,7 +249,7 @@ ChannelFactoryInitialize(0); print('DDS OK')"
 2. Generate the metadata tree (processes every JSON in `task_defs/`):
 
 ```bash
-cd ~/NONHUMAN/Psi0/real/teleop
+cd real/teleop
 python taskcreator.py
 ls data/   # should list every task_defs/<name>.json as a top-level dir
 ```
@@ -269,7 +271,7 @@ Pipeline still runs. PICO hand skeleton is captured (`real/teleop/vr_pico.py:79�
 > ⚠️ **Safety first** (`real/README.md:180-185`): keep distance from the robot. Power it on and enter dev mode with the remote: **`L2 + B`** then **`L2 + R2`** (older firmware: `L1 + A` then `L2 + R2`). **Hang the G1 from a rig so the feet barely touch the ground** before launching teleop.
 
 ```bash
-cd ~/NONHUMAN/Psi0/real/teleop
+cd real/teleop
 conda activate psi_deploy
 export CYCLONEDDS_URI="<CycloneDDS><Domain><General><NetworkInterfaceAddress>192.168.123.123</NetworkInterfaceAddress></General></Domain></CycloneDDS>"
 python main.py --robot g1 --pico_streamer --task_name pilot_pick
@@ -305,7 +307,7 @@ real/teleop/data/<task_json>/<category>/<title>/episode_N/
 
 | Symptom | Fix |
 |---|---|
-| `No such file or directory: Psi0/real/teleop` | You're already inside `Psi0`. Use `cd real/teleop` or the absolute path `cd ~/NONHUMAN/Psi0/real/teleop`. |
+| `No such file or directory: Psi0/real/teleop` | You're already inside `Psi0`. Use `cd real/teleop`. |
 | `EnvironmentNameNotFound: psi_deploy` | Section 2 hasn't been run yet. The env is created by `conda env create -f real/psi_deploy_env.yaml`. |
 | `Failed to build 'av'` / `No package 'libavdevice' found` | Missing FFmpeg dev headers. Install the apt packages listed under "System libs" at the top, then `conda env update -n psi_deploy -f real/psi_deploy_env.yaml`. |
 | `Cannot uninstall <pkg> ... no RECORD file` | Conda installed it transitively; pip can't downgrade. `pip install --ignore-installed <pkg>==<version>` then re-run `conda env update`. Repeat per offending package. |
