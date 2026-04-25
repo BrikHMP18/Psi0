@@ -60,11 +60,15 @@ The env bundles `torch+cuda` wheels; they install on AMD/integrated GPUs and sil
 
 ### 2a. Missing deps not in the YAML
 
-The YAML omits `pygobject`/GStreamer (used by `worker.py` for the IR stream pipeline). Install them:
+The YAML omits `pygobject` and the GStreamer plugins. `worker.py:96-103` uses `appsrc → videoconvert → x264enc → h264parse → appsink`, which need plugins-base/good/bad/ugly plus x264:
 
 ```bash
-conda install -y -c conda-forge pygobject gobject-introspection gst-python
+conda install -y -c conda-forge \
+    pygobject gobject-introspection gst-python \
+    gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-ugly x264
 ```
+
+Without the plugins, `import worker` works but `--pico_streamer` fails inside `Gst.parse_launch()`.
 
 ### 2b. libstdc++ activate hook (required)
 
@@ -235,13 +239,32 @@ ChannelFactoryInitialize(0); print('DDS OK')"
 
 ---
 
-## 11. No Dex3-1 hands attached
+## 11. Task metadata (REQUIRED before recording)
+
+`manager.py` writes episodes into `real/teleop/data/<task_json>/<category>/<title>/episode_N/`. That directory tree is **not** chosen by `--task_name` — it comes from `task_defs/*.json` processed by `taskcreator.py`. Without this step, `progress.py:get_next()` returns `None` and `s` (start) crashes on `os.makedirs(None)`.
+
+1. Edit or copy `real/teleop/task_defs/example.json` → `real/teleop/task_defs/<your_set>.json` with your tasks (title, category, objects, description). For WBCD logistics-picking, a 3-task pilot is provided in `real/teleop/task_defs/wbcd_pilot.json`.
+2. Generate the metadata tree (processes every JSON in `task_defs/`):
+
+```bash
+cd ~/NONHUMAN/Psi0/real/teleop
+python taskcreator.py
+ls data/   # should list every task_defs/<name>.json as a top-level dir
+```
+
+Verify `data/<your_set>/<category>/<title>/metadata/metadata.json` exists.
+
+`--task_name` on `main.py` is **only a log label** — it does not select the output folder. The next episode picked is whichever task in `data/` has the most progress and is incomplete (`progress.py:get_next()`).
+
+---
+
+## 13. No Dex3-1 hands attached
 
 Pipeline still runs. PICO hand skeleton is captured (`real/teleop/vr_pico.py:79–80`); Dex3 commands are computed and written to `data.json` under `actions.right_angles` / `actions.left_angles`. Robot motors ignore them. Data is reusable when Dex3 arrives — no re-recording. Dex3 motor warnings in logs are expected.
 
 ---
 
-## 12. Record
+## 14. Record
 
 > ⚠️ **Safety first** (`real/README.md:180-185`): keep distance from the robot. Power it on and enter dev mode with the remote: **`L2 + B`** then **`L2 + R2`** (older firmware: `L1 + A` then `L2 + R2`). **Hang the G1 from a rig so the feet barely touch the ground** before launching teleop.
 
@@ -252,7 +275,7 @@ export CYCLONEDDS_URI="<CycloneDDS><Domain><General><NetworkInterfaceAddress>192
 python main.py --robot g1 --pico_streamer --task_name pilot_pick
 ```
 
-Add `--pico_ip 192.168.X.Y` if your PICO is not at `192.168.0.128`. Wait for `master and worker waiting for starting signal`. Don the headset.
+Add `--pico_ip 192.168.X.Y` if your PICO is not at `192.168.0.128`. `--task_name` is just a log label — the actual task being recorded comes from §11 (task_defs + taskcreator). Wait for `master and worker waiting for starting signal`. Don the headset.
 
 | Key | Action |
 |---|---|
@@ -266,7 +289,7 @@ Add `--pico_ip 192.168.X.Y` if your PICO is not at `192.168.0.128`. Wait for `ma
 **Output structure (after `q`):**
 
 ```
-real/teleop/<auto_named_dir>/episode_N/
+real/teleop/data/<task_json>/<category>/<title>/episode_N/
 ├── color/frame_NNNNNN.jpg          # 640×480 BGR @ 30 fps
 ├── depth/frame_NNNNNN.npy.lzma     # numpy uint16, LZMA compressed
 ├── robot_data.jsonl                # raw state stream (kept)
@@ -278,7 +301,7 @@ real/teleop/<auto_named_dir>/episode_N/
 
 ---
 
-## 13. Troubleshooting
+## 15. Troubleshooting
 
 | Symptom | Fix |
 |---|---|
@@ -291,6 +314,8 @@ real/teleop/<auto_named_dir>/episode_N/
 | `ImportError: cannot import name 'VR_Pico'` | Wrong class name. Real classes in `vr_pico.py`: `PicoReceiver`, `VuerPreprocessor`, `PicoTeleop`. |
 | `--help` only shows `Vuer.*` args | Cosmetic — Vuer hijacks argparse formatter on import. The args (`--robot`, `--task_name`, `--pico_streamer`, `--pico_ip`) are still registered and work. |
 | `data.json` not created after episode | You pressed `d` (discard) instead of `q`, or master crashed before merge. Check `robot_data.jsonl` and `ik_data.jsonl` exist; manually run `python -m teleop.merger <episode_dir>` if needed. |
+| `s` crashes with `TypeError: expected str, bytes ... got NoneType` on `os.makedirs` | §11 not run. `data/` is empty, `progress.py:get_next()` returned `None`. Run `python taskcreator.py` first. |
+| `Gst.parse_launch` fails / `no element "x264enc"` | Section 2a's GStreamer plugins missing. Re-run the full conda install in §2a (includes `gst-plugins-base/good/bad/ugly` + `x264`). |
 | `bash: syntax error near unexpected token 'newline'` | You left literal placeholders like `<PICO_IP>` or `<task>` in a command. Replace them with real values, or omit the flag (defaults exist). |
 | `ImportError: flash_attn` | Skip `flash_attn` install; training-only |
 | OOM / heavy swap | Close browser, dockers; record one episode at a time; lower `OMP_NUM_THREADS` to 4 in `.env` |
@@ -311,6 +336,9 @@ real/teleop/<auto_named_dir>/episode_N/
 | `real/teleop/manager.py` | Command loop (`s`/`q`/`d`/`exit`) |
 | `real/teleop/vr_pico.py` | PICO headset + hand skeleton |
 | `real/teleop/image_server/realsense_server.py` | G1 PC, ZMQ:5556 REP |
-| `real/psi_deploy_env.yaml` | Conda env spec |
+| `real/teleop/taskcreator.py` | Generates `data/<task>/<cat>/<title>/metadata/` from `task_defs/*.json` (REQUIRED before recording) |
+| `real/teleop/progress.py` | `ProgressTracker.get_next()` picks the next episode dir |
+| `real/teleop/merger.py` | Merges `robot_data.jsonl` + `ik_data.jsonl` → `data.json` on `q` |
+| `real/psi_deploy_env.yaml` | Conda env spec (incomplete — see §2a) |
 | `real/README.md` | Original install reference |
 | `playbook.md` | WBCD strategy, no-MANUS rationale |
