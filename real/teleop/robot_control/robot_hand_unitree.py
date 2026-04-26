@@ -41,11 +41,13 @@ class Dex3_1_Controller:
         hand_target_array=None,
         fps=100.0,
         Unit_Test=False,
+        state_wait_timeout=5.0,
     ):
         print("Initialize Dex3_1_Controller...")
         self.hand_target_array = hand_target_array
         self.fps = fps
         self.Unit_Test = Unit_Test
+        self.state_wait_timeout = state_wait_timeout
 
         # Initialize HandCmd messages for left and right hands
         self.left_msg = unitree_hg_msg_dds__HandCmd_()
@@ -109,6 +111,8 @@ class Dex3_1_Controller:
             Array("d", 12, lock=True) for _ in range(9)
         ]
         self.left_hand_press_state_array = [Array("d", 12, lock=True) for _ in range(9)]
+        self.left_hand_state_ready = threading.Event()
+        self.right_hand_state_ready = threading.Event()
 
         # Initialize subscribe thread
         self.stop_event = Event()
@@ -125,9 +129,17 @@ class Dex3_1_Controller:
         self.dual_hand_action_array = dual_hand_action_array
 
         # Wait for hand state initialization
+        wait_start = time.monotonic()
         while True:
-            if any(self.left_hand_state_array) and any(self.right_hand_state_array):
+            if self.left_hand_state_ready.is_set() and self.right_hand_state_ready.is_set():
                 break
+            if self.state_wait_timeout is not None:
+                if (time.monotonic() - wait_start) > self.state_wait_timeout:
+                    print(
+                        "[Dex3_1_Controller] DDS hand state not received within "
+                        f"{self.state_wait_timeout:.1f}s. Continuing without live Dex3 feedback."
+                    )
+                    break
             time.sleep(0.01)
             print("[Dex3_1_Controller] Waiting to subscribe dds...")
 
@@ -158,6 +170,7 @@ class Dex3_1_Controller:
                 # Update left hand state
                 for idx, id in enumerate(Dex3_1_Left_JointIndex):
                     self.left_hand_state_array[idx] = left_hand_msg.motor_state[id].q
+                self.left_hand_state_ready.set()
 
                 for i in range(9):
                     self.left_hand_press_state_array[i] = (
@@ -166,6 +179,7 @@ class Dex3_1_Controller:
                 # Update right hand state
                 for idx, id in enumerate(Dex3_1_Right_JointIndex):
                     self.right_hand_state_array[idx] = right_hand_msg.motor_state[id].q
+                self.right_hand_state_ready.set()
 
                 for i in range(9):
                     self.right_hand_press_state_array[i] = (
