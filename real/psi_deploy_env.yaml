@@ -144,7 +144,9 @@ dependencies:
       - cuda-pathfinder==1.4.1
       - cycler==0.12.1
       - decorator==5.2.1
-      - dex-retargeting
+      # `pin` is provided by the conda pinocchio stack; forcing a pip version here
+      # makes `conda env create` fail when pip tries to uninstall the conda package.
+      - dex-retargeting==0.4.6
       - dnspython==2.8.0
       - docker-pycreds==0.4.0
       - eigenpy==3.5.1
@@ -209,7 +211,6 @@ dependencies:
       - pexpect==4.9.0
       - pickleshare==0.7.5
       - pillow==12.1.1
-      - pin==2.7.0
       - pin-pink==3.4.0
       - platformdirs==4.9.4
       - prompt-toolkit==3.0.52
