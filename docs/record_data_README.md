@@ -1,281 +1,314 @@
-# Recording Data on Unitree G1
+# Teleop y Data Collection en Unitree G1
 
-Recording-only. LeRobot conversion is in `docs/upload_hf_README.md`.
+Guia corta, operativa y pensada para copy/paste.
 
-Assumes Ubuntu 22.04+, `conda`, `uv`, `git`, `git-lfs`, `build-essential`, plus FFmpeg dev headers (PyAV builds from source):
+Este flujo fue validado con:
 
-```bash
-sudo apt install -y ffmpeg pkg-config \
-    libavdevice-dev libavfilter-dev libavformat-dev \
-    libavcodec-dev libavutil-dev libswscale-dev libswresample-dev
-```
+- G1 PC: `192.168.123.164`
+- Laptop por Ethernet al G1: `192.168.123.222`
+- Laptop por Wi-Fi: `192.168.250.82`
+- PICO: `192.168.250.87`
 
-## TL;DR
+Si alguna IP cambia, reemplazarla en los comandos.
 
-```bash
-# Terminal A — on G1 onboard PC, over SSH
-conda activate vision && python realsense_server.py
-```
+## 1. Ver IPs
+
+En la laptop:
 
 ```bash
-# Terminal B — on the laptop, from ./Psi0
-cd real/teleop
-conda activate psi_deploy
-export CYCLONEDDS_URI="<CycloneDDS><Domain><General><NetworkInterfaceAddress>192.168.123.123</NetworkInterfaceAddress></General></Domain></CycloneDDS>"
-python main.py --robot g1 --pico_streamer
-# s = start | q = save | d = discard | exit = quit
+hostname -I
+ip a
 ```
 
-Defaults: `--pico_ip 192.168.0.128`, `--task_name default_task`.
+Esperado en este setup:
 
-## 1. Clone
+- Ethernet al robot: `192.168.123.222`
+- Wi-Fi: `192.168.250.82`
 
-Pick a workspace where Psi0 and its sibling repos live side by side.
+## 2. Entrar a la PC del G1 por SSH
 
-```bash
-cd "$WORKSPACE"
-git clone https://github.com/BrikHMP18/Psi0.git
-cd Psi0
-git submodule update --init --recursive
-```
-
-## 2. Conda env
-
-```bash
-cd real
-conda env create -f psi_deploy_env.yaml
-conda activate psi_deploy
-cd ..
-```
-
-The YAML omits two things you also need.
-
-GStreamer plugins (required for `--pico_streamer`):
-
-```bash
-conda install -y -c conda-forge \
-    pygobject gobject-introspection gst-python \
-    gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-ugly x264
-```
-
-A libstdc++ activate hook (XRoboToolkit's `.so` causes `CXXABI_1.3.15 not found`):
-
-```bash
-mkdir -p "$CONDA_PREFIX/etc/conda/activate.d" "$CONDA_PREFIX/etc/conda/deactivate.d"
-
-cat > "$CONDA_PREFIX/etc/conda/activate.d/libstdcxx.sh" <<'EOF'
-export _PSI_OLD_LD_PRELOAD="${LD_PRELOAD:-}"
-if [ -n "${LD_PRELOAD:-}" ]; then
-  export LD_PRELOAD="$CONDA_PREFIX/lib/libstdc++.so.6:$LD_PRELOAD"
-else
-  export LD_PRELOAD="$CONDA_PREFIX/lib/libstdc++.so.6"
-fi
-EOF
-
-cat > "$CONDA_PREFIX/etc/conda/deactivate.d/libstdcxx.sh" <<'EOF'
-if [ -n "${_PSI_OLD_LD_PRELOAD+x}" ]; then
-  if [ -n "$_PSI_OLD_LD_PRELOAD" ]; then
-    export LD_PRELOAD="$_PSI_OLD_LD_PRELOAD"
-  else
-    unset LD_PRELOAD
-  fi
-  unset _PSI_OLD_LD_PRELOAD
-fi
-EOF
-
-conda deactivate && conda activate psi_deploy
-```
-
-## 3. Unitree SDK2 — Python (lab fork)
-
-```bash
-cd ..
-git clone git@github.com:physical-superintelligence-lab/unitree_sdk2_python.git
-cd unitree_sdk2_python && pip install -e . && cd ../Psi0
-```
-
-## 4. XRoboToolkit (PICO SDK)
-
-```bash
-cd ..
-git clone https://github.com/YanjieZe/XRoboToolkit-PC-Service-Pybind.git
-cd XRoboToolkit-PC-Service-Pybind
-mkdir -p tmp lib include && cd tmp
-git clone https://github.com/XR-Robotics/XRoboToolkit-PC-Service.git
-cd XRoboToolkit-PC-Service/RoboticsService/PXREARobotSDK && bash build.sh
-cd ../../../..
-cp tmp/XRoboToolkit-PC-Service/RoboticsService/PXREARobotSDK/PXREARobotSDK.h include/
-cp -r tmp/XRoboToolkit-PC-Service/RoboticsService/PXREARobotSDK/nlohmann include/nlohmann/
-cp tmp/XRoboToolkit-PC-Service/RoboticsService/PXREARobotSDK/build/libPXREARobotSDK.so lib/
-conda install -y -c conda-forge pybind11
-pip uninstall -y xrobotoolkit_sdk
-python setup.py install
-cd ../Psi0
-```
-
-Verify: `python -c "import xrobotoolkit_sdk as xrt; xrt.init(); xrt.close(); print('xrt OK')"`
-
-Also install **XRoboToolkit-PC-Service** on the laptop (https://github.com/XR-Robotics).
-
-## 5. real/ package
-
-```bash
-cd real && pip install -e . && cd ..
-```
-
-## 6. Env file
-
-```bash
-cp .env.sample .env
-# Set PSI_HOME to a writable path with ≥ 50 GB free.
-source .env
-```
-
-## 7. Network
-
-Wired LAN required — DDS over Wi-Fi is unreliable.
-
-```bash
-ip a                                     # find wired interface name
-sudo ip addr add 192.168.123.123/24 dev <IFACE>
-ping -c 3 192.168.123.164                # G1 PC
-export CYCLONEDDS_URI="<CycloneDDS><Domain><General><NetworkInterfaceAddress>192.168.123.123</NetworkInterfaceAddress></General></Domain></CycloneDDS>"
-```
-
-## 8. G1 onboard PC: image server
+Desde la laptop:
 
 ```bash
 ssh unitree@192.168.123.164
-conda create -n vision python=3.8 -y
+```
+
+## 3. Correr image server en la PC del G1
+
+En la PC del G1:
+
+```bash
+cd ~/NONHUMAN/Psi0/real/teleop/image_server
 conda activate vision
-pip install pyrealsense2 opencv-python pyzmq numpy
+python realsense_server.py
+```
+
+Esperado:
+
+```text
+Server started, waiting for client requests...
+RealSense: RGB + IR + Depth active.
+```
+
+Dejar esta terminal abierta.
+
+## 4. Correr XRoboToolkit-PC-Service en la laptop
+
+En otra terminal de la laptop:
+
+```bash
+cd /opt/apps/roboticsservice
+bash runService.sh
+pgrep -af RoboticsServiceProcess
+```
+
+Debe aparecer un proceso `RoboticsServiceProcess`.
+
+## 5. Configurar el PICO
+
+En el headset:
+
+1. Abrir `XRoboToolkit-Unity-Client`.
+2. En `Tracking Session`:
+   - `Head` ON
+   - `Controller` ON
+   - `Hand` ON
+   - `Send` ON
+3. En `Remote Vision Session`:
+   - elegir `ZEDMINI`
+   - pulsar `Listen`
+   - poner la IP Wi-Fi de la laptop:
+
+```text
+192.168.250.82
+```
+
+4. Soltar o bajar los controllers para que el PICO entre a hand tracking.
+
+## 6. Validar PICO desde la laptop
+
+En otra terminal de la laptop:
+
+```bash
+cd /home/raul/NONHUMAN/Psi0/real/teleop
+conda activate psi_deploy
+python check_pico_connection.py --pico-ip 192.168.250.87 --wait --wait-timeout 120
+```
+
+Esperado:
+
+```text
+PICO looks reachable from the laptop.
+```
+
+Si no sale eso, revisar:
+
+- `Head`, `Controller`, `Hand`, `Send`
+- `ZEDMINI -> Listen`
+- IP del PC en el PICO: `192.168.250.82`
+- que `RoboticsServiceProcess` siga vivo
+
+## 7. Preparar metadata de tareas
+
+Desde la laptop:
+
+```bash
+cd /home/raul/NONHUMAN/Psi0/real/teleop
+conda activate psi_deploy
+python taskcreator.py
+```
+
+## 8. Lanzar teleop y data collection
+
+Desde la laptop:
+
+```bash
+cd /home/raul/NONHUMAN/Psi0/real/teleop
+conda activate psi_deploy
+export CYCLONEDDS_URI="<CycloneDDS><Domain><General><NetworkInterfaceAddress>192.168.123.222</NetworkInterfaceAddress></General></Domain></CycloneDDS>"
+python main.py --robot g1 --pico_streamer --pico_ip 192.168.250.87
+```
+
+Notas:
+
+- `192.168.123.222` es la IP Ethernet de la laptop hacia el G1.
+- `192.168.250.87` es la IP del PICO.
+- El warning de CycloneDDS sobre `NetworkInterfaceAddress` deprecado no bloquea el flujo.
+
+## 9. Qué debe pasar al arrancar
+
+En la laptop deberías ver algo parecido a esto:
+
+```text
+[PICO] PICO SDK Initialized successfully
+[PicoIRStreamer] started, target=192.168.250.87:12345
+[PicoIRStreamer] connected to 192.168.250.87:12345
+body_ctrl ok!
+body_ik ok!
+Initialize Dex3_1_Controller OK!
+[INFO] Master: waiting to start
+```
+
+Notas:
+
+- `DDS hand state not received... Continuing without live Dex3 feedback.` es esperado si el robot no tiene manos Dex3.
+- `Master: waiting to start` significa que ya está listo y ahora espera que tú inicies la sesión.
+
+## 10. Iniciar la teleoperación
+
+En la misma terminal donde corre `main.py`, cuando aparezca:
+
+```text
+>
+```
+
+escribir:
+
+```text
+s
+```
+
+y luego `Enter`.
+
+Esperado:
+
+```text
+[INFO] Session started.
+[INFO] Current task: ...
+```
+
+También puede aparecer:
+
+```text
+Height Calibrated! Head Y: ..., Offset: ...
+```
+
+## 11. Comandos durante la sesión
+
+En la terminal de `main.py`:
+
+```text
+s
+q
+d
 exit
 ```
 
-From the laptop:
+Significado:
+
+- `s`: iniciar episodio
+- `q`: detener y guardar
+- `d`: detener y descartar
+- `exit`: cerrar limpio
+
+No usar `Ctrl+C` salvo emergencia, porque ensucia el cierre de procesos.
+
+## 12. Validación mínima de teleop
+
+Antes de grabar episodios largos, validar:
+
+1. En el PICO ves el stream del robot.
+2. Hay manos virtuales en el headset.
+3. El robot entra en pose ready.
+4. Los brazos responden al movimiento.
+5. La locomoción sale del joystick del control remoto del G1, no del PICO.
+
+## 13. Caso sin manos Dex3
+
+Si el robot no tiene manos:
+
+- el pipeline igual corre
+- el hand tracking del PICO igual se captura
+- se calculan comandos de mano
+- el robot ignora esos comandos físicamente
+
+Esto sirve para mover brazos/cuerpo y para grabar data reusable.
+
+## 14. Terminales recomendadas
+
+### Terminal A — G1 PC
 
 ```bash
-scp real/teleop/image_server/realsense_server.py unitree@192.168.123.164:~/
+ssh unitree@192.168.123.164
+cd ~/NONHUMAN/Psi0/real/teleop/image_server
+conda activate vision
+python realsense_server.py
 ```
 
-On the G1 PC:
+### Terminal B — laptop, XRoboToolkit service
 
 ```bash
-conda activate vision && python realsense_server.py
+cd /opt/apps/roboticsservice
+bash runService.sh
+pgrep -af RoboticsServiceProcess
 ```
 
-The server binds `192.168.123.164:5556` (hardcoded in `realsense_server.py`).
-
-## 9. PICO headset
-
-1. Install **XRoboToolkit-Unity-Client** APK on the PICO (https://github.com/XR-Robotics/XRoboToolkit-Unity-Client/releases).
-2. PICO + laptop on the same Wi-Fi.
-3. PICO app: enable **Head**, **Controller**, **Hand** under Tracking Session, toggle **Send** on.
-4. Under **Remote Vision Session**, select `ZEDMINI`, click **Listen**, enter the laptop's IP.
-5. Note the PICO IP — pass it as `--pico_ip` if not `192.168.0.128`.
-6. Put controllers down; PICO auto-switches to hand tracking.
-
-## 10. Smoke tests
-
-RealSense:
-```bash
-python -c "
-import zmq
-s = zmq.Context().socket(zmq.REQ); s.connect('tcp://192.168.123.164:5556')
-s.send(b''); p = s.recv_multipart()
-print(f'rgb={len(p[0])} ir={len(p[1])} depth={len(p[2])}')"
-```
-
-PICO:
-```bash
-python -c "
-import xrobotoolkit_sdk as xrt, time
-xrt.init(); time.sleep(0.5); print(xrt.get_headset_pose()); xrt.close()"
-```
-
-G1 DDS (robot powered, dev mode `L2+B` then `L2+R2`, suspended):
-```bash
-python -c "
-from unitree_sdk2py.core.channel import ChannelFactoryInitialize
-ChannelFactoryInitialize(0); print('DDS OK')"
-```
-
-## 11. Task metadata
-
-Episodes are written into `real/teleop/data/<task_set>/<category>/<task>/episode_N/`. The tree comes from `task_defs/*.json` processed by `taskcreator.py` — not from `--task_name` (which is only a log label).
-
-1. Edit or copy `real/teleop/task_defs/example.json` → `real/teleop/task_defs/<task_set>.json`. A 3-task pilot is provided in `task_defs/wbcd_pilot.json`.
-2. Generate the metadata tree:
+### Terminal C — laptop, validación PICO
 
 ```bash
-cd real/teleop
-python taskcreator.py
-ls data/   # one top-level dir per task_defs/<name>.json
-```
-
-Verify `data/<task_set>/<category>/<task>/metadata/metadata.json` exists.
-
-## 12. No Dex3-1 hands attached
-
-Pipeline still runs. PICO hand skeleton is captured; Dex3 commands are computed and written to `data.json` under `actions.right_angles` / `actions.left_angles`. Robot motors ignore them. Data is reusable when Dex3 arrives. Dex3 motor warnings are expected.
-
-## 13. Record
-
-> Safety: keep distance. Power on and enter dev mode: `L2 + B` then `L2 + R2` (older firmware: `L1 + A` then `L2 + R2`). Hang the G1 from a rig so the feet barely touch the ground before launching teleop.
-
-```bash
-cd real/teleop
+cd /home/raul/NONHUMAN/Psi0/real/teleop
 conda activate psi_deploy
-export CYCLONEDDS_URI="<CycloneDDS><Domain><General><NetworkInterfaceAddress>192.168.123.123</NetworkInterfaceAddress></General></Domain></CycloneDDS>"
-python main.py --robot g1 --pico_streamer --task_name pilot_pick
+python check_pico_connection.py --pico-ip 192.168.250.87 --wait --wait-timeout 120
 ```
 
-### Pre-record validation (do not press `s` yet)
+### Terminal D — laptop, teleop real
 
-The teleop loop runs continuously from launch — `s` only starts writing to disk. Validate the full stack first:
-
-1. Robot stands up in ready pose.
-2. Terminal prints `master and worker waiting for starting signal`.
-3. Don the headset and confirm the G1 RealSense POV is visible.
-4. Virtual hands appear around your real hands (PICO hand tracking active).
-5. Slowly move your arms — the robot mirrors them.
-
-Recording with a broken teleop loop produces unusable episodes.
-
-### Recording commands
-
-| Key | Action |
-|---|---|
-| `s` | Start episode (or the next one after `q`/`d`). |
-| `q` | Save + stop. Master merges `robot_data.jsonl` + `ik_data.jsonl` → `data.json`. Press `s` for the next episode. |
-| `d` | Discard + stop. Merge skipped; orphan `episode_N/` auto-deleted on the next `s`. |
-| `exit` | Shutdown. |
-
-No mid-episode pause. To pause, press `q` (save) or `d` (discard); `s` afterwards starts a new episode.
-
-Output after `q`:
-
-```
-real/teleop/data/<task_set>/<category>/<task>/episode_N/
-├── color/frame_NNNNNN.jpg
-├── depth/frame_NNNNNN.npy.lzma
-├── robot_data.jsonl
-├── ik_data.jsonl
-└── data.json
+```bash
+cd /home/raul/NONHUMAN/Psi0/real/teleop
+conda activate psi_deploy
+export CYCLONEDDS_URI="<CycloneDDS><Domain><General><NetworkInterfaceAddress>192.168.123.222</NetworkInterfaceAddress></General></Domain></CycloneDDS>"
+python main.py --robot g1 --pico_streamer --pico_ip 192.168.250.87
 ```
 
-~2–4 GB per 5-min episode. Target: 40 episodes per task.
+Luego en esa terminal:
 
-## 14. Troubleshooting
+```text
+s
+```
 
-| Symptom | Fix |
-|---|---|
-| `Failed to build 'av'` / `No package 'libavdevice' found` | Missing FFmpeg dev headers. Install the apt packages at the top, then `conda env update -n psi_deploy -f real/psi_deploy_env.yaml`. |
-| `ImportError: ... CXXABI_1.3.15 not found` | libstdc++ activate hook from §2 not applied. |
-| `ModuleNotFoundError: No module named 'gi'` / `no element "x264enc"` | GStreamer plugins from §2 missing. |
-| `s` crashes with `TypeError: ... NoneType` on `os.makedirs` | §11 not run. Run `python taskcreator.py`. |
-| `data.json` not created after episode | You pressed `d`, or master crashed. Check the `.jsonl` files; run `python -m teleop.merger <episode_dir>` manually if needed. |
-| `--help` only shows `Vuer.*` args | Cosmetic — Vuer hijacks argparse on import. The args still work. |
-| ZMQ smoke test hangs | `realsense_server.py` not running, or 5556 blocked on G1 PC. |
-| PICO not detected | Same Wi-Fi, "Send" toggle, restart XRoboToolkit-PC-Service. |
-| DDS silent | `CYCLONEDDS_URI` not exported in this shell. |
+## 15. Deploy RTC
+
+Para el deploy real del cliente RTC en el host:
+
+```bash
+cd /home/raul/NONHUMAN/Psi0/real
+conda activate psi_deploy
+bash ./scripts/deploy_psi0-rtc.sh
+```
+
+Usar esta parte cuando ya no estés en teleop/data collection sino en ejecución de política.
+
+## 16. Troubleshooting corto
+
+### `Master: waiting to start`
+
+Falta iniciar la sesión:
+
+```text
+s
+```
+
+### `PicoIRStreamer connected ...` pero no hay teleop
+
+Hay stream de video, pero todavía falta:
+
+- que `s` entre
+- o que el hand tracking del PICO esté llegando bien
+
+Validar con:
+
+```bash
+python check_pico_connection.py --pico-ip 192.168.250.87 --wait --wait-timeout 120
+```
+
+### `DDS hand state not received within 5.0s`
+
+Esperado si no hay Dex3.
+
+### El robot no camina con el PICO
+
+Esperado. En este repo, la locomoción usa el joystick del control remoto del G1.
+
+### El robot no mueve manos
+
+Esperado si no tienes manos físicas Dex3 instaladas.
