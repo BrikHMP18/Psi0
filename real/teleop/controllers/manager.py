@@ -83,9 +83,18 @@ class ControllerTeleopManager(TeleopManager):
         self.dataworker_proc = Process(target=run_dataworker)
 
     def cleanup(self):
-        super().cleanup()
+        # Defensive ordering: release MY shm BEFORE super().cleanup()
+        # runs the subprocess joins. If a stray Ctrl+C interrupts the
+        # parent inside `taskmaster_proc.join` / `dataworker_proc.join`,
+        # the cmd_shm is already unlinked and won't show up in the
+        # `resource_tracker: There appear to be N leaked shared_memory
+        # objects` warning. Subprocesses keep their own mapping alive
+        # until they exit, so any in-flight writes inside `_step_loop`
+        # finish without error — `unlink()` only removes the *name*; the
+        # OS frees the underlying buffer once everyone has `close()`d.
         try:
             self._cmd_shm.close()
             self._cmd_shm.unlink()
         except Exception:
             pass
+        super().cleanup()
