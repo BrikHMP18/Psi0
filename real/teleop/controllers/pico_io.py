@@ -47,6 +47,41 @@ def _trigger_to_qpos(trigger: float) -> np.ndarray:
     return (1.0 - t) * DEX3_OPEN_QPOS + t * DEX3_CLOSED_QPOS
 
 
+# `|offset|` above this is treated as a misconfigured calibration (e.g.
+# operator pulsed `s`/`t` while the headset was on a desk or in their
+# lap). Empirically a normal standing/sitting calibration produces an
+# offset in [0.0, 0.30] m.
+_CALIBRATION_OFFSET_THRESHOLD_M = 0.40
+
+
+def _format_calibration_banner(head_y: float, offset: float) -> str:
+    """Return a multi-line banner describing the calibration result with
+    a ✅/⚠️ badge based on `_CALIBRATION_OFFSET_THRESHOLD_M`.
+    """
+    if abs(offset) <= _CALIBRATION_OFFSET_THRESHOLD_M:
+        badge = "  ✅ OK"
+        tip = None
+    else:
+        badge = "  ⚠️  WARNING: offset alto."
+        tip = (
+            "      El headset estaba en una posición rara al calibrar.\n"
+            "      Pulsá `q` para volver a standby, ponete bien el\n"
+            "      headset, y volvé a pulsar `s` (o `t`) para recalibrar."
+        )
+    bar = "=" * 60
+    lines = [
+        bar,
+        "  HEIGHT CALIBRATION",
+        f"  Head Y (raw):  {head_y:+.3f} m",
+        f"  Offset:        {offset:+.3f} m",
+        badge,
+    ]
+    if tip is not None:
+        lines.append(tip)
+    lines.append(bar)
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 # Receiver
 # ---------------------------------------------------------------------------
@@ -199,10 +234,7 @@ class ControllerPreprocessor(VuerPreprocessor):
             current_y = head_mat[1, 3]
             if not np.allclose(current_y, 0):
                 self.y_offset = self.target_height - current_y
-                print(
-                    f"Height Calibrated! Head Y: {current_y:.3f}, "
-                    f"Offset: {self.y_offset:.3f}"
-                )
+                print(_format_calibration_banner(current_y, self.y_offset))
 
         height_offset = self.y_offset if self.y_offset is not None else 0.0
 

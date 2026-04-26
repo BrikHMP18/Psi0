@@ -86,11 +86,21 @@ class ControllerTeleoperatorProcess(TeleoperatorProcess):
             self.teleop_shm_array[48:55] = np.array(left_qpos).flatten()
             self.teleop_shm_array[55:62] = np.array(right_qpos).flatten()
 
-            # Phase 2: pipe sticks into the cmd_shm so `PicoStickShim` in
-            # the master process returns them via `body_ctrl.remote_controller.lx`.
+            # Phase 2/3/4: pipe sticks/crouch/triggers into cmd_shm so
+            # the master's PicoStickShim and ControllerPreprocessor see
+            # them. During standby (no session active), zero the entire
+            # cmd_shm so:
+            #   - PICO sticks don't accidentally drive the robot via the
+            #     AMO adapter while the operator is still settling into
+            #     the headset (sticks live at cmd_shm[0:4]).
+            #   - Crouch (cmd_shm[4]) and triggers (cmd_shm[5:7]) reset
+            #     to zero so each new session starts neutral instead of
+            #     inheriting state from the previous session.
             last_state = self.teleoperator.processor.last_state
-            if last_state is not None:
+            if last_state is not None and self.session_start_event.is_set():
                 state_to_cmd_shm(last_state, self._cmd_shm_array)
+            else:
+                self._cmd_shm_array[:] = 0.0
 
             time.sleep(0.01)
 
