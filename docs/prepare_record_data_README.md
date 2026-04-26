@@ -36,6 +36,8 @@ Pick a workspace where Psi0 and its sibling repos live side by side.
 cd "$WORKSPACE"
 git clone https://github.com/BrikHMP18/Psi0.git
 cd Psi0
+git config --global url."https://github.com/".insteadOf git@github.com:
+git submodule sync --recursive
 git submodule update --init --recursive
 ```
 
