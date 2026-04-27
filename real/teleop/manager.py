@@ -41,7 +41,9 @@ class TeleopManager:
         self.shared_dict["session_start_event"] = self.manager.Event()
         self.shared_dict["failure_event"] = self.manager.Event()
         self.shared_dict["end_event"] = self.manager.Event()  # TODO: redundent
-        self.progress_tracker = ProgressTracker()
+        data_dir = os.path.join(current_dir, "data")
+        os.makedirs(data_dir, exist_ok=True)
+        self.progress_tracker = ProgressTracker(base_dir=data_dir)
 
         if robot == "h1":
             totalsize = (

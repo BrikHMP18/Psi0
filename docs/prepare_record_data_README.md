@@ -113,6 +113,11 @@ python setup.py install
 cd ../Psi0
 ```
 
+Install t:
+```
+https://nvlabs.github.io/GR00T-WholeBodyControl/getting_started/vr_teleop_setup.html
+```
+
 Verify: `python -c "import xrobotoolkit_sdk as xrt; xrt.init(); xrt.close(); print('xrt OK')"`
 
 Also install **XRoboToolkit-PC-Service** on the laptop (https://github.com/XR-Robotics).
