@@ -316,6 +316,7 @@ class RobotDataWorker:
         self.frame_idx = 0
         self.last_robot_data = None
         self.robot_data_writer = None
+        self.recording_active = True
 
     def _run_teleoperator_process(
         self, teleop_shm_array, img_shm_name, kill_event, ir_data_queue, session_start_event
@@ -539,6 +540,8 @@ class RobotDataWorker:
             logger.info("Worker: exited")
 
     def _write_image_data(self, rgb_array, depth_array):
+        if not getattr(self, "recording_active", True):
+            return
         logger.debug("Worker: writing robot data")
 
         color_filename = os.path.join(
@@ -559,13 +562,21 @@ class RobotDataWorker:
 
     def _write_robot_data(self, rgb_array, depth_array, reuse=False):
         logger.debug(f"Worker: writing robot data")
+        if not getattr(self, "recording_active", True):
+            # Teleop-only mode: keep timing/index but don't touch disk.
+            self.last_robot_data = self.get_robot_data(time.time())
+            self.frame_idx += 1
+            return
+
         self._write_image_data(rgb_array, depth_array)
 
         robot_data = self.get_robot_data(time.time())
 
         if reuse:
-            self.last_robot_data["time"] = time.time()
-            self.robot_data_writer.write(json.dumps(robot_data))
+            if self.last_robot_data is not None:
+                self.last_robot_data["time"] = time.time()
+            if self.robot_data_writer is not None:
+                self.robot_data_writer.write(json.dumps(robot_data))
         else:
             if self.robot_data_writer is not None:
                 self.robot_data_writer.write(json.dumps(robot_data))
@@ -597,6 +608,12 @@ class RobotDataWorker:
 
 
     def _session_init(self):
+        self.recording_active = bool(self.shared_data.get("recording_active", True))
+        if not self.recording_active:
+            self.robot_data_writer = None
+            logger.info("Worker: starting teleop-only session (no recording).")
+            return
+
         if "dirname" not in self.shared_data:
             logger.error("Worker: failed to get dirname")
             exit(-1)
@@ -664,8 +681,9 @@ class RobotDataWorker:
             # TODO: flush the buffer?
             # self.teleop_thread.join(1)
             logger.info("Worker: teleop thread joined.")
-            self.robot_data_writer.close()
-            logger.info("Worker: writer closed.")
+            if self.robot_data_writer is not None:
+                self.robot_data_writer.close()
+                logger.info("Worker: writer closed.")
             self.reset()
             logger.info("Worker: closing async image writer.")
             if hasattr(self, "async_image_writer"):
